@@ -13,6 +13,8 @@ from time import strftime
 from psutil import virtual_memory
 import datetime
 import shutil
+import psycopg2
+#import database as db
 
 try:
     from osgeo import gdal #ogr, osr
@@ -111,6 +113,60 @@ class PostProcessing():
         # y = int(math.floor(gtif.RasterYSize*(3/3.0)))
         return x, y
 
+#Function created to get the intersecting tiles among the border of a country
+    def get_kachel_liste(self):
+        self.kachel_liste = []
+        cur = self.sql_get_kachel_country()
+        for row in cur:
+            self.kachel_liste.append(row)
+        print self.kachel_liste
+        kachel_anzahl = len(self.kachel_liste)
+        print kachel_anzahl, 'tiles intersects the border'
+
+#This funtion builds the query and returns the cursor with the information
+    def sql_get_kachel_country(self):
+        self.connect_db()
+        if group == '50k':
+            table = 'kachel_1_25grad'
+        elif group == '100k':
+            table = 'kachel_2_5grad'
+        else:
+            print 'group is wrong'
+            sys.exit('The group you write is not correct, choose between 100k and 50k')
+        sql = " SELECT k.name AS name"\
+        "FROM country.%s AS k,"\
+        "country.country AS country"\
+        "WHERE ST_Intersects(st_boundary(country.geom_boundary_buffer), k.geom)"\
+        "AND country.iso = '%s'" % (table, self.iso)"\
+        cur = self.executereturn(sql)
+        return cur
+        self.closeDBconnect()
+
+#Two functions to connect / disconnec from the database
+    def connect_db(self):
+#        import psycopg2
+        dbnamePG = "ngmaps"
+        userPG = "creation_center" #"osm" # 
+        hostPG = "10.49.20.78" #Workstaion # "localhost" #for local
+        portPG = "5432"
+        pwPG = "openstreetmap" #"test" #
+        global connection, cur
+        connection_str = "dbname='%s' host='%s' user='%s' password='%s'" % (dbnamePG,hostPG,userPG,pwPG)
+        connection = psycopg2.connect(connection_str)
+        print ("Verbindung zu Datenbank " + str(connection) + " erfolgreich aufgebaut")
+        cur = connection.cursor()
+    def closeDBconnect(self):
+        print ('close DB-Connection ' + str(connection))
+        cur.close()
+        connection.close()
+
+#Function to execute an SQL query, call allways after connect_db, don't forget
+#to close the connection after
+    def executereturn(self,sql_query):
+        print ("Start sql_query:\n%s" % (sql_query))
+        cur.execute(sql_query)
+        return cur
+
 # =============================================================================
 #     Gdaltranslate. Transform the png into GTiff with LZW compression,
 #     expand to rgba, with the resampling method as cubic, and predictor 
@@ -169,16 +225,24 @@ class PostProcessing():
     def warp_main(self):
         i=0
         for tif in os.listdir(self.rgba):
-			if tif[-4:] == '.tif':
-				i += 1
-				percentages = int((i*100)/self.num_files)
-				print '\n' + tif
-				print 'Processing image {0} from a total of {1}'.format(i, self.num_files)
-				wgs84 = os.path.join(self.wgs84,tif[:-4]+"_wgs84.tif")
-				tif = os.path.join(self.rgba,tif)
-				x, y = self.get_rastersize(tif)
-				self.gdalwarp(x, y, tif, wgs84, self.shp)
-				print '\nPercentage completed: {0}%'.format(percentages)
+            if tif[-4:] == '.tif':
+                i += 1
+                percentages = int((i*100)/self.num_files)
+                print '\n' + tif
+                print 'Processing image {0} from a total of {1}'.format(i, self.num_files)
+                wgs84 = os.path.join(self.wgs84,tif[:-4]+"_wgs84.tif")
+                tif = os.path.join(self.rgba,tif)
+                x, y = self.get_rastersize(tif)
+                tifs_border = []
+                tifs_not_border = []
+                if tif[:7] in self.kachel_liste:
+                    tifs_border.append()
+                else:
+                    tifs_not_border.append()
+                print tifs_border
+                print tifs_not_border
+                #self.gdalwarp(x, y, tif, wgs84, self.shp)
+                #print '\nPercentage completed: {0}%'.format(percentages)
 
 # =============================================================================
 #     Get the arguments from the function warp_main() and use them to apply the
@@ -209,8 +273,8 @@ class PostProcessing():
         #Changed parameters for gdalwarp: -wm 1024 Increased Working memory to half of the resources, improves performance without blocking computer with parallel jobs.
         #Changed parameters for gdalwarp: Added -crop_to_cutline as cutline (only a mask in the raster without modifying it) working alone will keep the full extent and data of the original raster
         print gdalwarp_command +'\n'
-        sp1 = subprocess.Popen([gdalwarp_command], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
-        sp1.wait()
+        #sp1 = subprocess.Popen([gdalwarp_command], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+        #sp1.wait()
 
 # =============================================================================
 #     Build the vrt file of all GTiff, here is important to keep the resolution
@@ -312,8 +376,8 @@ class PostProcessing():
             print 'Invalid entry, did not delete any data.'
 
 scale = "50k"
-png = "/server/maps-01/packages/europe/deu/nat/20190125_rev003/geo/50k" #Copy the path from "server"
-name = "deu_50k_eng"
+png = r"R:\packages\europe\esp\eng\20190715_rev003\geo\50k" #Copy the path from "server"
+name = "esp_50k_eng"
 group = "50k"
 continent = "50k" #"50k"     # This is just to add a surname to the subfolders need for the 
                             # parallel processing of diferent scripts (max of 2 processes).
@@ -322,6 +386,7 @@ png = os.path.join(homedir, png.lstrip(os.path.sep))
 
 # main
 m = PostProcessing(name, group, png)
+m.get_kachel_liste()
 m.gdaltranslate()
 m.get_crop_polygon(png)
 m.warp_main()
