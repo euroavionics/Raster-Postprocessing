@@ -145,7 +145,7 @@ class PostProcessing():
 #Two functions to connect / disconnec from the database
     def connect_db(self):
 #        import psycopg2
-        dbnamePG = "ngmaps"
+        dbnamePG = "test"
         userPG = "creation_center" #"osm" # 
         hostPG = "10.49.20.78" #Workstaion # "localhost" #for local
         portPG = "5432"
